@@ -59,10 +59,15 @@ jobs:
           get __/auth/experiments.js __/auth/experiments.js
           get __/auth/iframe         __/auth/iframe.html
           get __/auth/iframe.js      __/auth/iframe.js
-          get __/firebase/init.json  __/firebase/init.json
-          # The right project's files, or nothing: a mix-up here would send the
-          # family's sign-in to another project.
-          node -e "const c=require('./_site/__/firebase/init.json'); if(c.projectId!==process.env.FIREBASE_PROJECT){console.error('init.json is for '+c.projectId);process.exit(1)}"
+          # init.json exists only if the project uses Firebase Hosting; sign-in
+          # works without it. If it is there, it must be this project's: a
+          # mix-up would send the family's sign-in to another project.
+          if curl -fsSL --retry 3 "$base/__/firebase/init.json" -o _site/__/firebase/init.json; then
+            node -e "const c=require('./_site/__/firebase/init.json'); if(c.projectId!==process.env.FIREBASE_PROJECT){console.error('init.json is for '+c.projectId);process.exit(1)}"
+            echo "fetched __/firebase/init.json"
+          else
+            rm -f _site/__/firebase/init.json; echo "no __/firebase/init.json for this project (optional)"
+          fi
           grep -qi "<html" _site/__/auth/handler.html
           grep -qi "<html" _site/__/auth/iframe.html
 
