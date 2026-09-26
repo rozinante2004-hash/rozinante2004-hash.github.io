@@ -1,0 +1,79 @@
+name: Deploy the site root (with Google sign-in files)
+
+# This repository is the ROOT of https://rozinante2004-hash.github.io. Tony's
+# Recipes lives at /tonys-recipes/ and is deployed from its own repository;
+# nothing here changes it.
+#
+# Why this exists: on an iPhone, Google sign-in run on
+# recipes-f379d.firebaseapp.com stops half-way with "Unable to process request
+# due to missing initial state" — Safari keeps that site's storage apart from
+# the app's. Firebase's documented remedy is to serve its sign-in pages from
+# the app's own address and make that the app's authDomain. Pages only exist
+# at this address's root, so they are served from here, at /__/auth/ and
+# /__/firebase/.
+#
+# The files are Google's, fetched unchanged from the Firebase project on every
+# deploy and once a week, so they stay current and are never committed here.
+# Nothing in them is secret (init.json holds the same public web config the
+# app itself carries). `handler` and `iframe` are pages; saved as .html,
+# GitHub Pages answers /__/auth/handler with handler.html.
+
+on:
+  push:
+    branches: ["main"]
+  schedule:
+    - cron: "17 4 * * 1"      # Mondays — picks up any update Google makes to the files
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+env:
+  FIREBASE_PROJECT: recipes-f379d
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Assemble the site
+        run: |
+          mkdir -p _site/__/auth _site/__/firebase
+          cp 404.html _site/
+          touch _site/.nojekyll
+          base="https://${FIREBASE_PROJECT}.firebaseapp.com"
+          get() { curl -fsSL --retry 3 "$base/$1" -o "_site/$2"; test -s "_site/$2"; echo "fetched $1 → $2 ($(wc -c < "_site/$2") bytes)"; }
+          get __/auth/handler        __/auth/handler.html
+          get __/auth/handler.js     __/auth/handler.js
+          get __/auth/experiments.js __/auth/experiments.js
+          get __/auth/iframe         __/auth/iframe.html
+          get __/auth/iframe.js      __/auth/iframe.js
+          get __/firebase/init.json  __/firebase/init.json
+          # The right project's files, or nothing: a mix-up here would send the
+          # family's sign-in to another project.
+          node -e "const c=require('./_site/__/firebase/init.json'); if(c.projectId!==process.env.FIREBASE_PROJECT){console.error('init.json is for '+c.projectId);process.exit(1)}"
+          grep -qi "<html" _site/__/auth/handler.html
+          grep -qi "<html" _site/__/auth/iframe.html
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '_site'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
